@@ -47116,22 +47116,14 @@ function produceSignature(netId, contractAddress, eipParams) {
   const methodSig = `${eipParams.method}(${eipParams.args.map((p) => `${p.type} ${p.name}`).join(",")})`;
   const methodHash = import_ethers150.ethers.keccak256(import_ethers150.ethers.toUtf8Bytes(methodSig));
   const params = ["bytes32"].concat(eipParams.args.map((p) => p.type));
-  console.log("methodSig: ", methodSig, params, methodHash);
   const abiCoder = new import_ethers150.ethers.AbiCoder();
-  console.log("abi", [methodHash, ...eipParams.args.map((p) => p.value)]);
   const structure = abiCoder.encode(params, [methodHash, ...eipParams.args.map((p) => p.value)]);
   const structureHash = import_ethers150.ethers.keccak256(Buffer.from(structure.replace("0x", ""), "hex"));
   const ds = domainSeparator(eipParams.contractName, eipParams.contractVersion, netId, contractAddress);
-  console.log("Method hash is ", methodHash, methodSig);
-  console.log("Structure hash is ", structureHash, { params });
-  console.log("values area", [methodHash, ...eipParams.args.map((p) => p.value)]);
-  console.log("Domain separator is ", ds);
-  console.log("Chain ID is", netId);
   const hash = import_ethers150.ethers.solidityPackedKeccak256(["string", "bytes32", "bytes32"], ["", ds, structureHash]);
   const hash2 = import_ethers150.ethers.keccak256(
     import_ethers150.ethers.concat([import_ethers150.ethers.toUtf8Bytes(""), Buffer.from(ds.replace("0x", ""), "hex"), Buffer.from(structureHash.replace("0x", ""), "hex")])
   );
-  console.log("***hash", hash, hash2);
   return { ...eipParams, hash, signature: "" };
 }
 async function signWithPrivateKey(privateKey, hash) {
@@ -47143,7 +47135,6 @@ async function signWithPrivateKey(privateKey, hash) {
   const sig = fixSig((0, import_ethereumjs_util.toRpcSig)(sigP2.v, sigP2.r, sigP2.s));
   const recovered = (0, import_ethereumjs_util.ecrecover)(hashBuf, sigP2.v, sigP2.r, sigP2.s);
   const addr = (0, import_ethereumjs_util.pubToAddress)(recovered).toString("hex");
-  console.log("     Signed with address", addr);
   return { sig, addr };
 }
 function multiSigToBytes(sigs) {
@@ -47160,7 +47151,6 @@ function multiSigToBytes(sigs) {
   return "0x" + sig;
 }
 async function eip712MethodCall(contractName, contractVersion, chainId, contract, methodName, args, sks) {
-  console.log("We are going to bridge method call it ", contractName, contractVersion, methodName, chainId, args);
   const msg = produceSignature(
     chainId,
     contract,
@@ -47173,13 +47163,11 @@ async function eip712MethodCall(contractName, contractVersion, chainId, contract
   );
   const sigs = [];
   for (const sk of sks) {
-    console.log(`    About to sign with private key ${sk}`);
     const { sig, addr } = await signWithPrivateKey(sk, msg.hash);
     sigs.push({ sig, addr });
   }
   sigs.sort((s1, s2) => Buffer.from(s2.addr.replace("0x", ""), "hex") < Buffer.from(s1.addr.replace("0x", ""), "hex") ? 1 : -1);
   const fullSig = multiSigToBytes(sigs.map((s) => s.sig));
-  console.log("    Full signature is hash: ", msg.hash, "sig:", fullSig);
   msg.signature = fullSig;
   return msg;
 }
@@ -47217,18 +47205,24 @@ async function generateSignatureForMining(targetChainId, nonce, txs) {
 }
 async function mine(targetChainId) {
   const mgr = await Contracts.ledgerMgr();
-  const isBlRead = await mgr.isLocalBlockReady(Config.chainId);
-  console.log("Local block is ready? ", isBlRead);
-  const lastLocalBlock = await mgr.getLastLocalBlock(targetChainId);
-  const nonce = !lastLocalBlock.nonce ? 0 : lastLocalBlock.nonce;
-  let key = (await mgr.getBlockIdx(targetChainId, nonce)).toString();
-  const txLen = await mgr.getLocalBlockTransactionLength(key);
-  if (txLen === 0n) {
-    console.log("No transactions found for block", key);
+  const targetMgr = await Contracts.ledgerMgr(Config.targetWallet);
+  const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
+  console.log("Last mined block: ", lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  const nonce = lastMinedBlock.nonce + 1n;
+  const res = await mgr.localBlockByNonce(targetChainId, nonce);
+  if (!res) {
+    console.log("Errro calling: mgr.localBlockByNonce");
     return;
   }
-  console.log("Tx len for block", key, "is", txLen.toString());
-  let localTxs = await mgr.getLocalBlockTransactions(key);
+  const [nextLocalBlock, localTxs] = res;
+  if (nextLocalBlock[0].chainId === 0n) {
+    console.log("Local block with nonce", nonce, "is not ready");
+    return;
+  }
+  if (localTxs.length === 0) {
+    console.log("No transactions found for block", nonce);
+    return;
+  }
   const txs = localTxs.map((tx2) => ({
     token: tx2.token.toString(),
     amount: tx2.amount.toString(),
@@ -47245,14 +47239,14 @@ async function mine(targetChainId) {
     nonce.toString(),
     txs
   );
-  const tx = await (await Contracts.ledgerMgr(Config.targetWallet)).mineRemoteBlock(
+  const tx = await targetMgr.mineRemoteBlock(
     Config.chainId,
     nonce.toString(),
     txs,
     salt,
     expiry,
     signature,
-    { gasLimit: 12e6 }
+    targetChainId == 26100 ? { gasLimit: 12e6 } : {}
   );
   console.log(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
 }
@@ -47316,7 +47310,8 @@ async function finalize(targetChainId) {
       salt,
       expiry,
       multiSig.signature,
-      { gasLimit: 12e6 }
+      targetChainId == 26100 ? { gasLimit: 12e6 } : {}
+      //   { gasLimit: 12000000 }
     );
     console.log(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
   } else {
@@ -47380,6 +47375,10 @@ async function getTxLogs(txHash, contractAddress = Config.ledgerMgr) {
   if (!tx) {
     throw new Error("Transaction not found");
   }
+  if (tx.status !== 1) {
+    console.log("> Transaction failed");
+    return;
+  }
   const contractInterface = QuantumPortalLedgerMgrImplUpgradeable__factory.createInterface();
   for (const log of tx.logs) {
     if (log.address.toLowerCase() === contractAddress.toLowerCase()) {
@@ -47390,18 +47389,22 @@ async function getTxLogs(txHash, contractAddress = Config.ledgerMgr) {
         console.error("> Error parsing log:", error);
       }
     } else {
-      console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
-      const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
-      if (abiJson) {
-        try {
-          const unrelatedContractInterface = new import_ethers152.ethers.Interface(JSON.parse(abiJson));
-          const parsedLog = unrelatedContractInterface.parseLog(log);
-          console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
-        } catch (error) {
-          console.error(`> Error parsing log for unrelated contract: ${error.message}`);
+      try {
+        console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
+        const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
+        if (abiJson) {
+          try {
+            const unrelatedContractInterface = new import_ethers152.ethers.Interface(JSON.parse(abiJson));
+            const parsedLog = unrelatedContractInterface.parseLog(log);
+            console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
+          } catch (error) {
+            console.error(`> Error parsing log for unrelated contract: ${error.message}`);
+          }
+        } else {
+          console.log(`> ABI not available for address: ${log.address}`);
         }
-      } else {
-        console.log(`> ABI not available for address: ${log.address}`);
+      } catch (error) {
+        console.error(`> Error fetching ABI for unrelated contract (${log.address}): ${error.message}`);
       }
     }
   }
@@ -47448,12 +47451,14 @@ async function main() {
     console.log(`with wallet ${await Config.wallet?.getAddress?.()}.`);
     for (const [srcChainId, targetChainId] of cliConfig.pairs) {
       if (srcChainId === Config.chainId) {
-        console.log(`${(/* @__PURE__ */ new Date()).toISOString()}: Mining on chain ${srcChainId} => ${targetChainId}`);
+        console.log(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new import_ethers153.ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new import_ethers153.ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === "miner") {
+          console.log("******* MINING *********");
           await mine(targetChainId);
         } else if (Config.role === "finalizer") {
+          console.log("******* FINALIZING *********");
           await finalize(targetChainId);
         }
       }

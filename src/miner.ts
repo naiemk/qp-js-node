@@ -39,19 +39,30 @@ async function generateSignatureForMining(
 
 export async function mine(targetChainId: number) {
   const mgr = await Contracts.ledgerMgr();
-  const isBlRead = await mgr.isLocalBlockReady(Config.chainId);
-  console.log('Local block is ready? ', isBlRead);
+  const targetMgr = await Contracts.ledgerMgr(Config.targetWallet!);
+  const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
+  console.log('Last mined block: ', lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  const nonce = lastMinedBlock.nonce + 1n;
 
-  const lastLocalBlock = await mgr.getLastLocalBlock(targetChainId);
-  const nonce = !lastLocalBlock.nonce ? 0 : lastLocalBlock.nonce;
-  let key = (await mgr.getBlockIdx(targetChainId, nonce)).toString();
-  const txLen = await mgr.getLocalBlockTransactionLength(key);
-  if (txLen === 0n) {
-    console.log('No transactions found for block', key);
+  const res = await mgr.localBlockByNonce(targetChainId, nonce);
+  if (!res) {
+    console.log('Errro calling: mgr.localBlockByNonce');
     return;
   }
-  console.log('Tx len for block', key, 'is', txLen.toString());
-  let localTxs = await mgr.getLocalBlockTransactions(key);
+
+  const [nextLocalBlock, localTxs] = res;
+  if (nextLocalBlock[0].chainId === 0n) {
+    console.log('Local block with nonce', nonce, 'is not ready');
+    return;
+  }
+  // let key = (await mgr.getBlockIdx(targetChainId, nonce)).toString();
+  // const txLen = await mgr.getLocalBlockTransactionLength(key);
+  if (localTxs.length === 0) {
+    console.log('No transactions found for block', nonce);
+    return;
+  }
+  // console.log('Tx len for block', key, 'is', txLen.toString());
+  // let localTxs = await mgr.getLocalBlockTransactions(key);
   const txs = localTxs.map((tx) => ({
               token: tx.token.toString(),
               amount: tx.amount.toString(),
@@ -70,14 +81,14 @@ export async function mine(targetChainId: number) {
     txs,
   );
 
-  const tx = await (await Contracts.ledgerMgr(Config.targetWallet!)).mineRemoteBlock(
+  const tx = await targetMgr.mineRemoteBlock(
       Config.chainId,
       nonce.toString(),
       txs,
       salt,
       expiry,
       signature,
-      { gasLimit: 12000000 }
+      targetChainId == 26100 ? { gasLimit: 12000000 } : {}
   );
   console.log(`>>>> ${new Date().toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
 }

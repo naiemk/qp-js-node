@@ -50,22 +50,22 @@ export function produceSignature(
     const methodHash = ethers.keccak256(ethers.toUtf8Bytes(methodSig));
 
     const params = ['bytes32'].concat(eipParams.args.map(p => p.type));
-	  console.log('methodSig: ', methodSig, params, methodHash);
+	  // console.log('methodSig: ', methodSig, params, methodHash);
 	  const abiCoder = new ethers.AbiCoder();
-    console.log('abi', [methodHash, ...eipParams.args.map(p => p.value)]);
+    // console.log('abi', [methodHash, ...eipParams.args.map(p => p.value)]);
     const structure = abiCoder.encode(params, [methodHash, ...eipParams.args.map(p => p.value)]);
     const structureHash = ethers.keccak256(Buffer.from(structure.replace('0x', ''), 'hex'));
     const ds = domainSeparator(eipParams.contractName, eipParams.contractVersion, netId, contractAddress);
-	console.log('Method hash is ', methodHash, methodSig);
-	console.log('Structure hash is ', structureHash, {params});
-    console.log('values area', [methodHash, ...eipParams.args.map(p => p.value)]);
-	console.log('Domain separator is ', ds);
-    console.log('Chain ID is', netId);
+	// console.log('Method hash is ', methodHash, methodSig);
+	// console.log('Structure hash is ', structureHash, {params});
+    // console.log('values area', [methodHash, ...eipParams.args.map(p => p.value)]);
+	// console.log('Domain separator is ', ds);
+    // console.log('Chain ID is', netId);
     const hash = ethers.solidityPackedKeccak256(["string", "bytes32", "bytes32"], ["\x19\x01", ds, structureHash]) as HexString;
     const hash2 = ethers.keccak256(
       ethers.concat([ethers.toUtf8Bytes("\x19\x01"), Buffer.from(ds.replace('0x', ''), 'hex'), Buffer.from(structureHash.replace('0x', ''), 'hex')])
     ) as HexString;
-		console.log('***hash', hash, hash2);
+		// console.log('***hash', hash, hash2);
     return {...eipParams, hash, signature: ''};
 }
 
@@ -80,7 +80,7 @@ export async function signWithPrivateKey(
 	const sig = fixSig(toRpcSig(sigP2.v, sigP2.r, sigP2.s));
 	const recovered = ecrecover(hashBuf, sigP2.v, sigP2.r, sigP2.s);
 	const addr = pubToAddress(recovered).toString('hex');
-	console.log('     Signed with address', addr)
+	// console.log('     Signed with address', addr)
 	return {sig, addr};
 }
 
@@ -110,7 +110,7 @@ export async function eip712MethodCall(
 		contract: string,
 		methodName: string,
 		args: {type: string, name: string, value: string}[], sks: string[]) {
-	console.log('We are going to bridge method call it ', contractName, contractVersion, methodName, chainId, args)
+	// console.log('We are going to bridge method call it ', contractName, contractVersion, methodName, chainId, args)
 	const msg = produceSignature(
 		chainId, contract, {
 			contractName: contractName,
@@ -122,14 +122,14 @@ export async function eip712MethodCall(
 	// console.log('About to producing msg ', msg)
 	const sigs: Signature[] = [];
 	for (const sk of sks) {
-		console.log(`    About to sign with private key ${sk}`);
+		// console.log(`    About to sign with private key ${sk}`);
 		const {sig, addr} = await signWithPrivateKey(sk, msg.hash!);
 		sigs.push({sig, addr});
 	}
     // Make sure that signatures are in the order of the signer address
   sigs.sort((s1, s2) => Buffer.from(s2.addr.replace('0x', ''), 'hex') < Buffer.from(s1.addr.replace('0x', ''), 'hex') ? 1 : -1);
 	const fullSig = multiSigToBytes(sigs.map(s => s.sig));
-	console.log('    Full signature is hash: ', msg.hash, 'sig:', fullSig);
+	// console.log('    Full signature is hash: ', msg.hash, 'sig:', fullSig);
 	msg.signature = fullSig;
 	return msg;
 }

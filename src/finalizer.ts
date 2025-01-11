@@ -55,7 +55,8 @@ export async function finalize(targetChainId: number) {
           salt,
           expiry,
           multiSig.signature!,
-          { gasLimit: 12000000 }
+      targetChainId == 26100 ? { gasLimit: 12000000 } : {}
+        //   { gasLimit: 12000000 }
           );
         console.log(`>>>> ${new Date().toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
   } else {

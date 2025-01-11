@@ -56,6 +56,10 @@ export async function getTxLogs(txHash: string, contractAddress: string = Config
   }
 
   // console.log("> Transaction Receipt:", tx);
+  if (tx.status !== 1) {
+    console.log("> Transaction failed");
+    return;
+  }
   const contractInterface = QuantumPortalLedgerMgrImplUpgradeable__factory.createInterface();
 
   for (const log of tx.logs) {
@@ -68,18 +72,22 @@ export async function getTxLogs(txHash: string, contractAddress: string = Config
       }
     } else {
       // Attempt to fetch the ABI dynamically for unrelated contracts
-      console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
-      const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
-      if (abiJson) {
-        try {
-          const unrelatedContractInterface = new ethers.Interface(JSON.parse(abiJson));
-          const parsedLog = unrelatedContractInterface.parseLog(log);
-          console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
-        } catch (error) {
-          console.error(`> Error parsing log for unrelated contract: ${(error as Error).message}`);
+      try {
+        console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
+        const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
+        if (abiJson) {
+          try {
+            const unrelatedContractInterface = new ethers.Interface(JSON.parse(abiJson));
+            const parsedLog = unrelatedContractInterface.parseLog(log);
+            console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
+          } catch (error) {
+            console.error(`> Error parsing log for unrelated contract: ${(error as Error).message}`);
+          }
+        } else {
+          console.log(`> ABI not available for address: ${log.address}`);
         }
-      } else {
-        console.log(`> ABI not available for address: ${log.address}`);
+      } catch (error) {
+        console.error(`> Error fetching ABI for unrelated contract (${log.address}): ${(error as Error).message}`);
       }
     }
   }

@@ -54,12 +54,14 @@ async function main() {
     console.log(`with wallet ${await Config.wallet?.getAddress?.()}.`);
     for (const [srcChainId, targetChainId] of cliConfig.pairs) {
       if (srcChainId === Config.chainId) {
-        console.log(`${new Date().toISOString()}: Mining on chain ${srcChainId} => ${targetChainId}`);
+        console.log(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === 'miner') {
+          console.log('******* MINING *********')
           await mine(targetChainId);
         } else if (Config.role === 'finalizer') {
+          console.log('******* FINALIZING *********')
           await finalize(targetChainId);
         }
       }
