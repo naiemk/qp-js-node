@@ -47486,13 +47486,15 @@ if (!Config.ledgerMgr) {
   throw new Error("LEDGER_MGR is not set. Set it in config.json");
 }
 var proviers = JSON.parse(import_fs2.default.readFileSync("./providers.json", "utf8"));
-if (!proviers[Config.chainId]) {
-  throw new Error(`Provider for chain ${Config.chainId} is not set`);
-}
-var provider = new import_ethers153.ethers.JsonRpcProvider(proviers[Config.chainId]);
-Config.provider = provider;
-if (Config.walletSk) {
-  Config.wallet = new import_ethers153.ethers.Wallet(Config.walletSk, provider);
+function setProvider(chainId2) {
+  if (!proviers[chainId2]) {
+    throw new Error(`Provider for chain ${chainId2} is not set`);
+  }
+  const provider = new import_ethers153.ethers.JsonRpcProvider(proviers[chainId2]);
+  Config.provider = provider;
+  if (Config.walletSk) {
+    Config.wallet = new import_ethers153.ethers.Wallet(Config.walletSk, provider);
+  }
 }
 async function main() {
   log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
@@ -47514,6 +47516,7 @@ async function main() {
           continue;
         }
         Config.chainId = srcChainId;
+        setProvider(srcChainId);
         log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new import_ethers153.ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new import_ethers153.ethers.Wallet(Config.walletSk, targetProvider);
@@ -47522,9 +47525,6 @@ async function main() {
           try {
             system_lock_default.waitForLock();
             await mine(targetChainId);
-            if (loopForever === "true") {
-              await sleep(15e3);
-            }
           } catch (e) {
             log.error("Error mining", e);
           } finally {
@@ -47535,15 +47535,15 @@ async function main() {
           try {
             system_lock_default.waitForLock();
             await finalize(targetChainId);
-            if (loopForever === "true") {
-              await sleep(3e4);
-            }
           } catch (e) {
             log.error("Error finalizing", e);
           } finally {
             system_lock_default.releaseLock();
           }
         }
+      }
+      if (loopForever === "true") {
+        await sleep(Config.role === "miner" ? 15e3 : 3e4);
       }
     } while (loopForever === "true");
   }

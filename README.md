@@ -19,7 +19,7 @@ Running above will encrypte the env values in .env and create .env.key and .env 
 5. Run the node as service
 
 ```
-$ pm2 start ./index.js --name MINER -- --loop
+$ pm2 start ./index.js --name MINER -- --loop=true
 ```
 
 ### Running miner and finalizer on the same machine

@@ -34,13 +34,15 @@ if (!contracts_1.Config.ledgerMgr) {
     throw new Error('LEDGER_MGR is not set. Set it in config.json');
 }
 const proviers = JSON.parse(fs_1.default.readFileSync('./providers.json', 'utf8'));
-if (!proviers[contracts_1.Config.chainId]) {
-    throw new Error(`Provider for chain ${contracts_1.Config.chainId} is not set`);
-}
-const provider = new ethers_1.ethers.JsonRpcProvider(proviers[contracts_1.Config.chainId]);
-contracts_1.Config.provider = provider;
-if (contracts_1.Config.walletSk) {
-    contracts_1.Config.wallet = new ethers_1.ethers.Wallet(contracts_1.Config.walletSk, provider);
+function setProvider(chainId) {
+    if (!proviers[chainId]) {
+        throw new Error(`Provider for chain ${chainId} is not set`);
+    }
+    const provider = new ethers_1.ethers.JsonRpcProvider(proviers[chainId]);
+    contracts_1.Config.provider = provider;
+    if (contracts_1.Config.walletSk) {
+        contracts_1.Config.wallet = new ethers_1.ethers.Wallet(contracts_1.Config.walletSk, provider);
+    }
 }
 async function main() {
     contracts_2.log.info(`${new Date().toISOString()}: Processing chain ${contracts_1.Config.chainId}. Role: ${contracts_1.Config.role}`);
@@ -62,6 +64,7 @@ async function main() {
                     continue;
                 }
                 contracts_1.Config.chainId = srcChainId;
+                setProvider(srcChainId);
                 contracts_2.log.info(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
                 const targetProvider = new ethers_1.ethers.JsonRpcProvider(proviers[targetChainId]);
                 contracts_1.Config.targetWallet = new ethers_1.ethers.Wallet(contracts_1.Config.walletSk, targetProvider);

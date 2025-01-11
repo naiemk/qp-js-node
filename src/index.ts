@@ -35,15 +35,15 @@ if (!Config.ledgerMgr) {
 }
 
 const proviers = JSON.parse(fs.readFileSync('./providers.json', 'utf8'));
-if (!proviers[Config.chainId]) {
-  throw new Error(`Provider for chain ${Config.chainId} is not set`);
-}
-
-const provider = new ethers.JsonRpcProvider(proviers[Config.chainId]);
-Config.provider = provider;
-
-if (Config.walletSk) {
-  Config.wallet = new ethers.Wallet(Config.walletSk, provider);
+function setProvider(chainId: number) {
+  if (!proviers[chainId]) {
+    throw new Error(`Provider for chain ${chainId} is not set`);
+  }
+  const provider = new ethers.JsonRpcProvider(proviers[chainId]);
+  Config.provider = provider;
+  if (Config.walletSk) {
+    Config.wallet = new ethers.Wallet(Config.walletSk, provider);
+  }
 }
 
 async function main() {
@@ -67,6 +67,7 @@ async function main() {
           continue;
         }
         Config.chainId = srcChainId;
+        setProvider(srcChainId);
         log.info(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new ethers.Wallet(Config.walletSk, targetProvider);
@@ -75,7 +76,6 @@ async function main() {
           try {
             SystemLock.waitForLock();
             await mine(targetChainId);
-            if (loopForever === 'true') { await sleep(15000); }
           } catch (e) {
             log.error('Error mining', e);
           } finally {
@@ -86,7 +86,6 @@ async function main() {
           try {
             SystemLock.waitForLock();
             await finalize(targetChainId);
-            if (loopForever === 'true') { await sleep(30000); }
           } catch (e) {
             log.error('Error finalizing', e);
           } finally {
@@ -94,6 +93,8 @@ async function main() {
           }
         }
       }
+
+      if (loopForever === 'true') { await sleep(Config.role === 'miner' ? 15000 : 30000); }
     } while (loopForever === 'true');
   }
 }
