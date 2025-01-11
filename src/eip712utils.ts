@@ -62,9 +62,6 @@ export function produceSignature(
 	// console.log('Domain separator is ', ds);
     // console.log('Chain ID is', netId);
     const hash = ethers.solidityPackedKeccak256(["string", "bytes32", "bytes32"], ["\x19\x01", ds, structureHash]) as HexString;
-    const hash2 = ethers.keccak256(
-      ethers.concat([ethers.toUtf8Bytes("\x19\x01"), Buffer.from(ds.replace('0x', ''), 'hex'), Buffer.from(structureHash.replace('0x', ''), 'hex')])
-    ) as HexString;
 		// console.log('***hash', hash, hash2);
     return {...eipParams, hash, signature: ''};
 }

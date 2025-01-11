@@ -1,7 +1,8 @@
 import { ethers } from "ethers";
-import { Config } from "./contracts";
+import { Config, CONSOLE_LOGGER as log } from "./contracts";
 import { QuantumPortalLedgerMgrImplUpgradeable__factory } from "../typechain-types";
 import axios from "axios";
+const logger = log;
 
 async function fetchAbiFromExplorer(contractAddress: string, chainId: number): Promise<string | null> {
   const explorer = Config.explorerApi[chainId.toString()];
@@ -55,9 +56,9 @@ export async function getTxLogs(txHash: string, contractAddress: string = Config
     throw new Error("Transaction not found");
   }
 
-  // console.log("> Transaction Receipt:", tx);
+  // log.debug("> Transaction Receipt:", tx);
   if (tx.status !== 1) {
-    console.log("> Transaction failed");
+    log.error("> Transaction failed");
     return;
   }
   const contractInterface = QuantumPortalLedgerMgrImplUpgradeable__factory.createInterface();
@@ -66,25 +67,25 @@ export async function getTxLogs(txHash: string, contractAddress: string = Config
     if (log.address.toLowerCase() === contractAddress.toLowerCase()) {
       try {
         const parsedLog = contractInterface.parseLog(log);
-        console.log("> Parsed Log:", parsedLog);
+        logger.info("> Parsed Log:", parsedLog);
       } catch (error) {
         console.error("> Error parsing log:", error);
       }
     } else {
       // Attempt to fetch the ABI dynamically for unrelated contracts
       try {
-        console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
+        logger.info(`> Fetching ABI for unrelated log from address: ${log.address}`);
         const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
         if (abiJson) {
           try {
             const unrelatedContractInterface = new ethers.Interface(JSON.parse(abiJson));
             const parsedLog = unrelatedContractInterface.parseLog(log);
-            console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
+            logger.info(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
           } catch (error) {
             console.error(`> Error parsing log for unrelated contract: ${(error as Error).message}`);
           }
         } else {
-          console.log(`> ABI not available for address: ${log.address}`);
+          logger.warn(`> ABI not available for address: ${log.address}`);
         }
       } catch (error) {
         console.error(`> Error fetching ABI for unrelated contract (${log.address}): ${(error as Error).message}`);

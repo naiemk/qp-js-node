@@ -1,5 +1,5 @@
 import dotenv from '@dotenvx/dotenvx';
-import { CliConfig, Config } from './contracts';
+import { CliConfig, Config, sleep } from './contracts';
 import { ethers } from 'ethers';
 import { mine } from './miner';
 import { finalize } from './finalizer';
@@ -7,12 +7,20 @@ import fs from 'fs';
 import { getTxLogs } from './tx-logs';
 dotenv.config();
 
-const chainIdArg = process.argv.find((arg) => arg.startsWith('--chainId='));
-if (!chainIdArg) {
-  throw new Error('CHAIN_ID is not set. Use --chainId=<chainId>');
+import { log } from './contracts';
+import SystemLock from './system-lock';
+
+const helpArg = process.argv.find((arg) => arg.startsWith('--help'));
+if (helpArg) {
+  console.log(`Usage: node index.js [--chainId=<chainId>] [--t=<txhash>] [--loop=true]`);
+  process.exit(0);
 }
+
+const loopForeverArg = process.argv.find((arg) => arg.startsWith('--loop='));
+const loopForever = loopForeverArg ? loopForeverArg.split('=')[1] : undefined;
+const chainIdArg = process.argv.find((arg) => arg.startsWith('--chainId='));
+const chainId = chainIdArg ? Number(chainIdArg.split('=')[1]) : undefined;
 const cliConfig: CliConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-Config.chainId = Number(chainIdArg.split('=')[1]);
 Config.role = cliConfig.role;
 Config.ledgerMgr = cliConfig.ledgerMgr;
 Config.explorerApi = cliConfig.explorerApi;
@@ -24,10 +32,6 @@ if (!Config.role) {
 
 if (!Config.ledgerMgr) {
   throw new Error('LEDGER_MGR is not set. Set it in config.json');
-}
-
-if (!Config.chainId) {
-  throw new Error('CHAIN_ID is not set. Use --chainId=<chainId>');
 }
 
 const proviers = JSON.parse(fs.readFileSync('./providers.json', 'utf8'));
@@ -43,29 +47,54 @@ if (Config.walletSk) {
 }
 
 async function main() {
-  console.log(`${new Date().toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
+  log.info(`${new Date().toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
   const txArg = process.argv.find((arg) => arg.startsWith('--tx='));
   if (txArg) {
+    if (!chainId) {
+      console.error('CHAIN_ID is not set. Use --chainId=<chainId>');
+      process.exit(1);
+    }
+    Config.chainId = chainId;
     const txHash = txArg.split('=')[1];
     return await getTxLogs(txHash);
   }
 
   if (Config.role === 'miner' || Config.role === 'finalizer') {
-    console.log(`with wallet ${await Config.wallet?.getAddress?.()}.`);
-    for (const [srcChainId, targetChainId] of cliConfig.pairs) {
-      if (srcChainId === Config.chainId) {
-        console.log(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
+    log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
+    do {
+      for (const [srcChainId, targetChainId] of cliConfig.pairs) {
+        if (chainId && srcChainId !== chainId) {
+          continue;
+        }
+        Config.chainId = srcChainId;
+        log.info(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === 'miner') {
-          console.log('******* MINING *********')
-          await mine(targetChainId);
+          log.info('******* MINING *********')
+          try {
+            SystemLock.waitForLock();
+            await mine(targetChainId);
+            if (loopForever === 'true') { await sleep(15000); }
+          } catch (e) {
+            log.error('Error mining', e);
+          } finally {
+            SystemLock.releaseLock();
+          }
         } else if (Config.role === 'finalizer') {
-          console.log('******* FINALIZING *********')
-          await finalize(targetChainId);
+          log.info('******* FINALIZING *********')
+          try {
+            SystemLock.waitForLock();
+            await finalize(targetChainId);
+            if (loopForever === 'true') { await sleep(30000); }
+          } catch (e) {
+            log.error('Error finalizing', e);
+          } finally {
+            SystemLock.releaseLock();
+          }
         }
       }
-    }
+    } while (loopForever === 'true');
   }
 }
 

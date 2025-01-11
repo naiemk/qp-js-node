@@ -1,4 +1,4 @@
-import { Config, Contracts, expiryInFuture, randomSalt } from "./contracts";
+import { Config, Contracts, expiryInFuture, randomSalt, log } from "./contracts";
 import { eip712MethodCall } from "./eip712utils";
 
 async function generateSignatureForMining(
@@ -12,7 +12,7 @@ async function generateSignatureForMining(
       Config.chainId,
       nonce,
       txs);
-  console.log('Msg Hash for :', {
+  log.info('Msg Hash for :', {
       chainId:Config.chainId,
       nonce,
       txs
@@ -41,27 +41,27 @@ export async function mine(targetChainId: number) {
   const mgr = await Contracts.ledgerMgr();
   const targetMgr = await Contracts.ledgerMgr(Config.targetWallet!);
   const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
-  console.log('Last mined block: ', lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  log.info('Last mined block: ', lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
   const nonce = lastMinedBlock.nonce + 1n;
 
   const res = await mgr.localBlockByNonce(targetChainId, nonce);
   if (!res) {
-    console.log('Errro calling: mgr.localBlockByNonce');
+    log.error('Error calling: mgr.localBlockByNonce');
     return;
   }
 
   const [nextLocalBlock, localTxs] = res;
   if (nextLocalBlock[0].chainId === 0n) {
-    console.log('Local block with nonce', nonce, 'is not ready');
+    log.warn('Local block with nonce', nonce, 'is not ready');
     return;
   }
   // let key = (await mgr.getBlockIdx(targetChainId, nonce)).toString();
   // const txLen = await mgr.getLocalBlockTransactionLength(key);
   if (localTxs.length === 0) {
-    console.log('No transactions found for block', nonce);
+    log.warn('No transactions found for block', nonce);
     return;
   }
-  // console.log('Tx len for block', key, 'is', txLen.toString());
+  // log.debug('Tx len for block', key, 'is', txLen.toString());
   // let localTxs = await mgr.getLocalBlockTransactions(key);
   const txs = localTxs.map((tx) => ({
               token: tx.token.toString(),
@@ -90,5 +90,6 @@ export async function mine(targetChainId: number) {
       signature,
       targetChainId == 26100 ? { gasLimit: 12000000 } : {}
   );
-  console.log(`>>>> ${new Date().toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  log.info(`>>>> ${new Date().toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  await tx.wait();
 }

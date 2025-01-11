@@ -1,5 +1,5 @@
 import { keccak256, AbiCoder } from "ethers";
-import { Config, Contracts, expiryInFuture, randomSalt } from "./contracts";
+import { Config, Contracts, expiryInFuture, randomSalt, log } from "./contracts";
 import { eip712MethodCall } from "./eip712utils";
 
 const abi = new AbiCoder();
@@ -8,12 +8,12 @@ export async function finalize(targetChainId: number) {
   const mgr = await Contracts.ledgerMgr(Config.targetWallet!);
   const block = await mgr.lastRemoteMinedBlock(Config.chainId);
   const lastFin = await mgr.getLastFinalizedBlock(Config.chainId);
-  console.log('Last mined block is', block);
-  console.log('Last finalized block is', lastFin);
+  log.info('Last mined block is', block);
+  log.info('Last finalized block is', lastFin);
   const blockNonce = Number(block.nonce);
   const fin = Number(lastFin.nonce);
   if (blockNonce > fin) {
-      console.log(`Calling mgr.finalize(${Config.chainId}, ${blockNonce.toString()})`);
+      log.info(`Calling mgr.finalize(${Config.chainId}, ${blockNonce.toString()})`);
       const expiry = expiryInFuture().toString();
       const salt = randomSalt();
       const FINALIZE_METHOD = 
@@ -22,7 +22,7 @@ export async function finalize(targetChainId: number) {
           );
       const msgHash = keccak256(abi.encode(['bytes32', 'uint256', 'uint256', 'uint256[]', 'bytes32', 'uint64'],
           [FINALIZE_METHOD, Config.chainId, blockNonce, [], salt, expiry]));
-      console.log('Fin method msgHash', msgHash);
+      log.info('Fin method msgHash', msgHash);
       
       const authority = await Contracts.authorityMgr();
       const name = await authority.NAME();
@@ -39,7 +39,7 @@ export async function finalize(targetChainId: number) {
               { type: 'uint64', name: 'expiry', value: expiry },
           ]
           , [Config.walletSk]);
-      console.log("Returned from eip712MethodCall", multiSig.hash, name, version);
+      log.info("Returned from eip712MethodCall", multiSig.hash, name, version);
       // TODO: Validate blocks
       const gas = await mgr.finalize.estimateGas(Config.chainId,
           blockNonce,
@@ -48,18 +48,18 @@ export async function finalize(targetChainId: number) {
           expiry,
           multiSig.signature!,
           );
-      console.log("Gas required to finalize is:", gas.toString());
+      log.info("Gas required to finalize is:", gas.toString());
       const tx = await mgr.finalize(Config.chainId,
           blockNonce,
           [] as any, // invalidBlocks,
           salt,
           expiry,
           multiSig.signature!,
-      targetChainId == 26100 ? { gasLimit: 12000000 } : {}
-        //   { gasLimit: 12000000 }
+          targetChainId == 26100 ? { gasLimit: 12000000 } : {}
           );
-        console.log(`>>>> ${new Date().toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
+        log.info(`>>>> ${new Date().toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
+        await tx.wait();
   } else {
-      console.log('Nothing to finalize...')
+      log.info('Nothing to finalize...')
   }
 }

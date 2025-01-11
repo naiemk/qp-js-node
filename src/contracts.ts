@@ -1,5 +1,23 @@
 import { ethers, Signer } from "ethers";
 import { QuantumPortalAuthorityMgrUpgradeable, QuantumPortalAuthorityMgrUpgradeable__factory, QuantumPortalLedgerMgrImplUpgradeable, QuantumPortalLedgerMgrImplUpgradeable__factory, QuantumPortalMinerMgrUpgradeable, QuantumPortalMinerMgrUpgradeable__factory } from "../typechain-types"
+import winston from 'winston';
+
+export const log = winston.createLogger({
+  format: winston.format.simple(),
+  transports: [
+    new winston.transports.File({ filename: process.env.LOG_FILE || './logs/ops.log' }),
+  ]
+});
+
+export const CONSOLE_LOGGER = winston.createLogger({
+  format: winston.format.simple(),
+  transports: [
+    new winston.transports.Console()
+  ]
+});
+
+
+export const sleep = (n: number) => new Promise(resolve => setTimeout(resolve, n));
 
 export interface CliConfig {
   role: 'miner' | 'finalizer';
@@ -23,6 +41,7 @@ export const Config = {
   walletSk: '',
   chainId: 0 as number,
   explorerApi: {} as any,
+  globalLockFilePath: ''
 };
 
 export function expiryInFuture(): number {
@@ -35,7 +54,7 @@ export function randomSalt(): string {
 
 export class Contracts {
   static async ledgerMgr(wallet: Signer = Config.wallet!): Promise<QuantumPortalLedgerMgrImplUpgradeable> {
-    console.log('ledgerMgr', (await wallet.provider!.getNetwork()).chainId);
+    // console.log('ledgerMgr', (await wallet.provider!.getNetwork()).chainId);
     return QuantumPortalLedgerMgrImplUpgradeable__factory.connect(Config.ledgerMgr, wallet);
   }
 

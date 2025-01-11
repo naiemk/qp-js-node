@@ -47049,6 +47049,20 @@ var SigCheckableUpgradeable__factory = class {
 SigCheckableUpgradeable__factory.abi = _abi148;
 
 // src/contracts.ts
+var import_winston = __toESM(require("winston"));
+var log = import_winston.default.createLogger({
+  format: import_winston.default.format.simple(),
+  transports: [
+    new import_winston.default.transports.File({ filename: process.env.LOG_FILE || "./logs/ops.log" })
+  ]
+});
+var CONSOLE_LOGGER = import_winston.default.createLogger({
+  format: import_winston.default.format.simple(),
+  transports: [
+    new import_winston.default.transports.Console()
+  ]
+});
+var sleep = (n) => new Promise((resolve) => setTimeout(resolve, n));
 var Config = {
   role: null,
   ledgerMgr: "",
@@ -47057,7 +47071,8 @@ var Config = {
   targetWallet: null,
   walletSk: "",
   chainId: 0,
-  explorerApi: {}
+  explorerApi: {},
+  globalLockFilePath: ""
 };
 function expiryInFuture() {
   return Math.floor(Date.now() / 1e3) + 60 * 60 * 24 * 1;
@@ -47067,7 +47082,6 @@ function randomSalt() {
 }
 var Contracts = class _Contracts {
   static async ledgerMgr(wallet = Config.wallet) {
-    console.log("ledgerMgr", (await wallet.provider.getNetwork()).chainId);
     return QuantumPortalLedgerMgrImplUpgradeable__factory.connect(Config.ledgerMgr, wallet);
   }
   static async minerMgr(wallet = Config.wallet) {
@@ -47121,9 +47135,6 @@ function produceSignature(netId, contractAddress, eipParams) {
   const structureHash = import_ethers150.ethers.keccak256(Buffer.from(structure.replace("0x", ""), "hex"));
   const ds = domainSeparator(eipParams.contractName, eipParams.contractVersion, netId, contractAddress);
   const hash = import_ethers150.ethers.solidityPackedKeccak256(["string", "bytes32", "bytes32"], ["", ds, structureHash]);
-  const hash2 = import_ethers150.ethers.keccak256(
-    import_ethers150.ethers.concat([import_ethers150.ethers.toUtf8Bytes(""), Buffer.from(ds.replace("0x", ""), "hex"), Buffer.from(structureHash.replace("0x", ""), "hex")])
-  );
   return { ...eipParams, hash, signature: "" };
 }
 async function signWithPrivateKey(privateKey, hash) {
@@ -47150,9 +47161,9 @@ function multiSigToBytes(sigs) {
   sig = sig + vs;
   return "0x" + sig;
 }
-async function eip712MethodCall(contractName, contractVersion, chainId, contract, methodName, args, sks) {
+async function eip712MethodCall(contractName, contractVersion, chainId2, contract, methodName, args, sks) {
   const msg = produceSignature(
-    chainId,
+    chainId2,
     contract,
     {
       contractName,
@@ -47181,7 +47192,7 @@ async function generateSignatureForMining(targetChainId, nonce, txs) {
     nonce,
     txs
   );
-  console.log("Msg Hash for :", {
+  log.info("Msg Hash for :", {
     chainId: Config.chainId,
     nonce,
     txs
@@ -47207,20 +47218,20 @@ async function mine(targetChainId) {
   const mgr = await Contracts.ledgerMgr();
   const targetMgr = await Contracts.ledgerMgr(Config.targetWallet);
   const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
-  console.log("Last mined block: ", lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  log.info("Last mined block: ", lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
   const nonce = lastMinedBlock.nonce + 1n;
   const res = await mgr.localBlockByNonce(targetChainId, nonce);
   if (!res) {
-    console.log("Errro calling: mgr.localBlockByNonce");
+    log.error("Error calling: mgr.localBlockByNonce");
     return;
   }
   const [nextLocalBlock, localTxs] = res;
   if (nextLocalBlock[0].chainId === 0n) {
-    console.log("Local block with nonce", nonce, "is not ready");
+    log.warn("Local block with nonce", nonce, "is not ready");
     return;
   }
   if (localTxs.length === 0) {
-    console.log("No transactions found for block", nonce);
+    log.warn("No transactions found for block", nonce);
     return;
   }
   const txs = localTxs.map((tx2) => ({
@@ -47248,7 +47259,8 @@ async function mine(targetChainId) {
     signature,
     targetChainId == 26100 ? { gasLimit: 12e6 } : {}
   );
-  console.log(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  await tx.wait();
 }
 
 // src/finalizer.ts
@@ -47258,12 +47270,12 @@ async function finalize(targetChainId) {
   const mgr = await Contracts.ledgerMgr(Config.targetWallet);
   const block = await mgr.lastRemoteMinedBlock(Config.chainId);
   const lastFin = await mgr.getLastFinalizedBlock(Config.chainId);
-  console.log("Last mined block is", block);
-  console.log("Last finalized block is", lastFin);
+  log.info("Last mined block is", block);
+  log.info("Last finalized block is", lastFin);
   const blockNonce = Number(block.nonce);
   const fin = Number(lastFin.nonce);
   if (blockNonce > fin) {
-    console.log(`Calling mgr.finalize(${Config.chainId}, ${blockNonce.toString()})`);
+    log.info(`Calling mgr.finalize(${Config.chainId}, ${blockNonce.toString()})`);
     const expiry = expiryInFuture().toString();
     const salt = randomSalt();
     const FINALIZE_METHOD = (0, import_ethers151.keccak256)(
@@ -47273,7 +47285,7 @@ async function finalize(targetChainId) {
       ["bytes32", "uint256", "uint256", "uint256[]", "bytes32", "uint64"],
       [FINALIZE_METHOD, Config.chainId, blockNonce, [], salt, expiry]
     ));
-    console.log("Fin method msgHash", msgHash);
+    log.info("Fin method msgHash", msgHash);
     const authority = await Contracts.authorityMgr();
     const name = await authority.NAME();
     const version = await authority.VERSION();
@@ -47291,7 +47303,7 @@ async function finalize(targetChainId) {
       ],
       [Config.walletSk]
     );
-    console.log("Returned from eip712MethodCall", multiSig.hash, name, version);
+    log.info("Returned from eip712MethodCall", multiSig.hash, name, version);
     const gas = await mgr.finalize.estimateGas(
       Config.chainId,
       blockNonce,
@@ -47301,7 +47313,7 @@ async function finalize(targetChainId) {
       expiry,
       multiSig.signature
     );
-    console.log("Gas required to finalize is:", gas.toString());
+    log.info("Gas required to finalize is:", gas.toString());
     const tx = await mgr.finalize(
       Config.chainId,
       blockNonce,
@@ -47311,24 +47323,25 @@ async function finalize(targetChainId) {
       expiry,
       multiSig.signature,
       targetChainId == 26100 ? { gasLimit: 12e6 } : {}
-      //   { gasLimit: 12000000 }
     );
-    console.log(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
+    log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
+    await tx.wait();
   } else {
-    console.log("Nothing to finalize...");
+    log.info("Nothing to finalize...");
   }
 }
 
 // src/index.ts
-var import_fs = __toESM(require("fs"));
+var import_fs2 = __toESM(require("fs"));
 
 // src/tx-logs.ts
 var import_ethers152 = require("ethers");
 var import_axios = __toESM(require("axios"));
-async function fetchAbiFromExplorer(contractAddress, chainId) {
-  const explorer = Config.explorerApi[chainId.toString()];
+var logger = CONSOLE_LOGGER;
+async function fetchAbiFromExplorer(contractAddress, chainId2) {
+  const explorer = Config.explorerApi[chainId2.toString()];
   if (!explorer) {
-    console.error(`Explorer API configuration not found for chain ID: ${chainId}`);
+    console.error(`Explorer API configuration not found for chain ID: ${chainId2}`);
     return null;
   }
   try {
@@ -47376,48 +47389,92 @@ async function getTxLogs(txHash, contractAddress = Config.ledgerMgr) {
     throw new Error("Transaction not found");
   }
   if (tx.status !== 1) {
-    console.log("> Transaction failed");
+    CONSOLE_LOGGER.error("> Transaction failed");
     return;
   }
   const contractInterface = QuantumPortalLedgerMgrImplUpgradeable__factory.createInterface();
-  for (const log of tx.logs) {
-    if (log.address.toLowerCase() === contractAddress.toLowerCase()) {
+  for (const log2 of tx.logs) {
+    if (log2.address.toLowerCase() === contractAddress.toLowerCase()) {
       try {
-        const parsedLog = contractInterface.parseLog(log);
-        console.log("> Parsed Log:", parsedLog);
+        const parsedLog = contractInterface.parseLog(log2);
+        logger.info("> Parsed Log:", parsedLog);
       } catch (error) {
         console.error("> Error parsing log:", error);
       }
     } else {
       try {
-        console.log(`> Fetching ABI for unrelated log from address: ${log.address}`);
-        const abiJson = await fetchAbiFromExplorer(log.address, Config.chainId);
+        logger.info(`> Fetching ABI for unrelated log from address: ${log2.address}`);
+        const abiJson = await fetchAbiFromExplorer(log2.address, Config.chainId);
         if (abiJson) {
           try {
             const unrelatedContractInterface = new import_ethers152.ethers.Interface(JSON.parse(abiJson));
-            const parsedLog = unrelatedContractInterface.parseLog(log);
-            console.log(`> Parsed Log (Unrelated Contract - ${log.address}):`, parsedLog);
+            const parsedLog = unrelatedContractInterface.parseLog(log2);
+            logger.info(`> Parsed Log (Unrelated Contract - ${log2.address}):`, parsedLog);
           } catch (error) {
             console.error(`> Error parsing log for unrelated contract: ${error.message}`);
           }
         } else {
-          console.log(`> ABI not available for address: ${log.address}`);
+          logger.warn(`> ABI not available for address: ${log2.address}`);
         }
       } catch (error) {
-        console.error(`> Error fetching ABI for unrelated contract (${log.address}): ${error.message}`);
+        console.error(`> Error fetching ABI for unrelated contract (${log2.address}): ${error.message}`);
       }
     }
   }
 }
 
+// src/system-lock.ts
+var import_fs = require("fs");
+var SystemLock = class {
+  /**
+   * Wait for the lock file to be released (either deleted or cleared).
+   */
+  static async waitForLock() {
+    while (true) {
+      try {
+        const content = await import_fs.promises.readFile(this.SystemLockFilePath, "utf-8");
+        if (!content.trim()) {
+          return;
+        }
+      } catch (err) {
+        if (err.code === "ENOENT") {
+          return;
+        }
+        throw err;
+      }
+      log.info("Waiting for lock to be released...");
+      await new Promise((resolve) => setTimeout(resolve, 1e4));
+    }
+  }
+  /**
+   * Clear the lock file's content and delete it.
+   */
+  static async releaseLock() {
+    try {
+      await import_fs.promises.writeFile(this.SystemLockFilePath, "", "utf-8");
+      await import_fs.promises.unlink(this.SystemLockFilePath);
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        throw err;
+      }
+    }
+  }
+};
+SystemLock.SystemLockFilePath = "/tmp/mine-finalize.lock";
+var system_lock_default = SystemLock;
+
 // src/index.ts
 import_dotenvx.default.config();
-var chainIdArg = process.argv.find((arg) => arg.startsWith("--chainId="));
-if (!chainIdArg) {
-  throw new Error("CHAIN_ID is not set. Use --chainId=<chainId>");
+var helpArg = process.argv.find((arg) => arg.startsWith("--help"));
+if (helpArg) {
+  console.log(`Usage: node index.js [--chainId=<chainId>] [--t=<txhash>] [--loop=true]`);
+  process.exit(0);
 }
-var cliConfig = JSON.parse(import_fs.default.readFileSync("./config.json", "utf8"));
-Config.chainId = Number(chainIdArg.split("=")[1]);
+var loopForeverArg = process.argv.find((arg) => arg.startsWith("--loop="));
+var loopForever = loopForeverArg ? loopForeverArg.split("=")[1] : void 0;
+var chainIdArg = process.argv.find((arg) => arg.startsWith("--chainId="));
+var chainId = chainIdArg ? Number(chainIdArg.split("=")[1]) : void 0;
+var cliConfig = JSON.parse(import_fs2.default.readFileSync("./config.json", "utf8"));
 Config.role = cliConfig.role;
 Config.ledgerMgr = cliConfig.ledgerMgr;
 Config.explorerApi = cliConfig.explorerApi;
@@ -47428,10 +47485,7 @@ if (!Config.role) {
 if (!Config.ledgerMgr) {
   throw new Error("LEDGER_MGR is not set. Set it in config.json");
 }
-if (!Config.chainId) {
-  throw new Error("CHAIN_ID is not set. Use --chainId=<chainId>");
-}
-var proviers = JSON.parse(import_fs.default.readFileSync("./providers.json", "utf8"));
+var proviers = JSON.parse(import_fs2.default.readFileSync("./providers.json", "utf8"));
 if (!proviers[Config.chainId]) {
   throw new Error(`Provider for chain ${Config.chainId} is not set`);
 }
@@ -47441,28 +47495,57 @@ if (Config.walletSk) {
   Config.wallet = new import_ethers153.ethers.Wallet(Config.walletSk, provider);
 }
 async function main() {
-  console.log(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
+  log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
   const txArg = process.argv.find((arg) => arg.startsWith("--tx="));
   if (txArg) {
+    if (!chainId) {
+      console.error("CHAIN_ID is not set. Use --chainId=<chainId>");
+      process.exit(1);
+    }
+    Config.chainId = chainId;
     const txHash = txArg.split("=")[1];
     return await getTxLogs(txHash);
   }
   if (Config.role === "miner" || Config.role === "finalizer") {
-    console.log(`with wallet ${await Config.wallet?.getAddress?.()}.`);
-    for (const [srcChainId, targetChainId] of cliConfig.pairs) {
-      if (srcChainId === Config.chainId) {
-        console.log(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
+    log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
+    do {
+      for (const [srcChainId, targetChainId] of cliConfig.pairs) {
+        if (chainId && srcChainId !== chainId) {
+          continue;
+        }
+        Config.chainId = srcChainId;
+        log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
         const targetProvider = new import_ethers153.ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new import_ethers153.ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === "miner") {
-          console.log("******* MINING *********");
-          await mine(targetChainId);
+          log.info("******* MINING *********");
+          try {
+            system_lock_default.waitForLock();
+            await mine(targetChainId);
+            if (loopForever === "true") {
+              await sleep(15e3);
+            }
+          } catch (e) {
+            log.error("Error mining", e);
+          } finally {
+            system_lock_default.releaseLock();
+          }
         } else if (Config.role === "finalizer") {
-          console.log("******* FINALIZING *********");
-          await finalize(targetChainId);
+          log.info("******* FINALIZING *********");
+          try {
+            system_lock_default.waitForLock();
+            await finalize(targetChainId);
+            if (loopForever === "true") {
+              await sleep(3e4);
+            }
+          } catch (e) {
+            log.error("Error finalizing", e);
+          } finally {
+            system_lock_default.releaseLock();
+          }
         }
       }
-    }
+    } while (loopForever === "true");
   }
 }
 main().catch((e) => {
