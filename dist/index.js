@@ -47192,11 +47192,6 @@ async function generateSignatureForMining(targetChainId, nonce, txs) {
     nonce,
     txs
   );
-  log.info("Msg Hash for :", {
-    chainId: Config.chainId,
-    nonce,
-    txs
-  }, "is: ", msgHash);
   const expiry = expiryInFuture().toString();
   const salt = randomSalt();
   const multiSig = await eip712MethodCall(
@@ -47218,7 +47213,7 @@ async function mine(targetChainId) {
   const mgr = await Contracts.ledgerMgr();
   const targetMgr = await Contracts.ledgerMgr(Config.targetWallet);
   const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
-  log.info("Last mined block: ", lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  log.info(`Last mined block: ${lastMinedBlock.nonce} (@${lastMinedBlock.length}). Getting next block on source`);
   const nonce = lastMinedBlock.nonce + 1n;
   const res = await mgr.localBlockByNonce(targetChainId, nonce);
   if (!res) {
@@ -47227,11 +47222,11 @@ async function mine(targetChainId) {
   }
   const [nextLocalBlock, localTxs] = res;
   if (nextLocalBlock[0].chainId === 0n) {
-    log.warn("Local block with nonce", nonce, "is not ready");
+    log.warn(`Local block with nonce ${nonce} is not ready`);
     return;
   }
   if (localTxs.length === 0) {
-    log.warn("No transactions found for block", nonce);
+    log.warn(`No transactions found for blocks ${nonce}`);
     return;
   }
   const txs = localTxs.map((tx2) => ({
@@ -47250,6 +47245,7 @@ async function mine(targetChainId) {
     nonce.toString(),
     txs
   );
+  log.info(`About to mine new bloc ${nonce} on ${targetChainId} with ${txs.length}} txs`);
   const tx = await targetMgr.mineRemoteBlock(
     Config.chainId,
     nonce.toString(),
@@ -47259,7 +47255,7 @@ async function mine(targetChainId) {
     signature,
     targetChainId == 26100 ? { gasLimit: 12e6 } : {}
   );
-  log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - MINE: ${tx?.hash}`);
   await tx.wait();
 }
 
@@ -47270,8 +47266,8 @@ async function finalize(targetChainId) {
   const mgr = await Contracts.ledgerMgr(Config.targetWallet);
   const block = await mgr.lastRemoteMinedBlock(Config.chainId);
   const lastFin = await mgr.getLastFinalizedBlock(Config.chainId);
-  log.info("Last mined block is", block);
-  log.info("Last finalized block is", lastFin);
+  log.info(`Last mined block is ${block}`);
+  log.info(`Last finalized block is ${lastFin}`);
   const blockNonce = Number(block.nonce);
   const fin = Number(lastFin.nonce);
   if (blockNonce > fin) {
@@ -47285,7 +47281,7 @@ async function finalize(targetChainId) {
       ["bytes32", "uint256", "uint256", "uint256[]", "bytes32", "uint64"],
       [FINALIZE_METHOD, Config.chainId, blockNonce, [], salt, expiry]
     ));
-    log.info("Fin method msgHash", msgHash);
+    log.info(`Fin method msgHash ${msgHash}`);
     const authority = await Contracts.authorityMgr();
     const name = await authority.NAME();
     const version = await authority.VERSION();
@@ -47303,7 +47299,6 @@ async function finalize(targetChainId) {
       ],
       [Config.walletSk]
     );
-    log.info("Returned from eip712MethodCall", multiSig.hash, name, version);
     const gas = await mgr.finalize.estimateGas(
       Config.chainId,
       blockNonce,
@@ -47313,7 +47308,7 @@ async function finalize(targetChainId) {
       expiry,
       multiSig.signature
     );
-    log.info("Gas required to finalize is:", gas.toString());
+    log.info(`Gas required to finalize is: ${gas.toString()}`);
     const tx = await mgr.finalize(
       Config.chainId,
       blockNonce,
@@ -47324,7 +47319,7 @@ async function finalize(targetChainId) {
       multiSig.signature,
       targetChainId == 26100 ? { gasLimit: 12e6 } : {}
     );
-    log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - FINALIZE:`, tx?.hash);
+    log.info(`>>>> ${(/* @__PURE__ */ new Date()).toISOString()} - ${targetChainId} - FINALIZE: ${tx.hash}`);
     await tx.wait();
   } else {
     log.info("Nothing to finalize...");
@@ -47497,7 +47492,6 @@ function setProvider(chainId2) {
   }
 }
 async function main() {
-  log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
   const txArg = process.argv.find((arg) => arg.startsWith("--tx="));
   if (txArg) {
     if (!chainId) {
@@ -47509,7 +47503,6 @@ async function main() {
     return await getTxLogs(txHash);
   }
   if (Config.role === "miner" || Config.role === "finalizer") {
-    log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
     do {
       for (const [srcChainId, targetChainId] of cliConfig.pairs) {
         if (chainId && srcChainId !== chainId) {
@@ -47518,6 +47511,7 @@ async function main() {
         Config.chainId = srcChainId;
         setProvider(srcChainId);
         log.info(`${(/* @__PURE__ */ new Date()).toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
+        log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
         const targetProvider = new import_ethers153.ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new import_ethers153.ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === "miner") {
