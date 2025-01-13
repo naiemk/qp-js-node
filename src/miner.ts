@@ -12,11 +12,11 @@ async function generateSignatureForMining(
       Config.chainId,
       nonce,
       txs);
-  log.info('Msg Hash for :', {
-      chainId:Config.chainId,
-      nonce,
-      txs
-  }, 'is: ', msgHash);
+  // log.info(`Msg Hash for :${{
+  //     chainId:Config.chainId,
+  //     nonce,
+  //     txs
+  // }} is ${msgHash}`);
   const expiry = expiryInFuture().toString();
   const salt = randomSalt();
   // Verify with a miner that has no stakes
@@ -36,12 +36,11 @@ async function generateSignatureForMining(
   return [salt, expiry, multiSig.signature!];
 }
 
-
 export async function mine(targetChainId: number) {
   const mgr = await Contracts.ledgerMgr();
   const targetMgr = await Contracts.ledgerMgr(Config.targetWallet!);
   const lastMinedBlock = await targetMgr.getLastMinedBlock(Config.chainId);
-  log.info('Last mined block: ', lastMinedBlock.nonce, `(@${lastMinedBlock.length}). Getting next block on source`);
+  log.info(`Last mined block: ${lastMinedBlock.nonce} (@${lastMinedBlock.length}). Getting next block on source`);
   const nonce = lastMinedBlock.nonce + 1n;
 
   const res = await mgr.localBlockByNonce(targetChainId, nonce);
@@ -52,13 +51,13 @@ export async function mine(targetChainId: number) {
 
   const [nextLocalBlock, localTxs] = res;
   if (nextLocalBlock[0].chainId === 0n) {
-    log.warn('Local block with nonce', nonce, 'is not ready');
+    log.warn(`Local block with nonce ${nonce} is not ready`);
     return;
   }
   // let key = (await mgr.getBlockIdx(targetChainId, nonce)).toString();
   // const txLen = await mgr.getLocalBlockTransactionLength(key);
   if (localTxs.length === 0) {
-    log.warn('No transactions found for block', nonce);
+    log.warn(`No transactions found for blocks ${nonce}`);
     return;
   }
   // log.debug('Tx len for block', key, 'is', txLen.toString());
@@ -81,6 +80,7 @@ export async function mine(targetChainId: number) {
     txs,
   );
 
+  log.info(`About to mine new bloc ${nonce} on ${targetChainId} with ${txs.length}} txs`);
   const tx = await targetMgr.mineRemoteBlock(
       Config.chainId,
       nonce.toString(),
@@ -90,6 +90,6 @@ export async function mine(targetChainId: number) {
       signature,
       targetChainId == 26100 ? { gasLimit: 12000000 } : {}
   );
-  log.info(`>>>> ${new Date().toISOString()} - ${targetChainId} - MINE:`, tx?.hash);
+  log.info(`>>>> ${new Date().toISOString()} - ${targetChainId} - MINE: ${tx?.hash}`);
   await tx.wait();
 }

@@ -23,6 +23,7 @@ export interface CliConfig {
   role: 'miner' | 'finalizer';
   ledgerMgr: string;
   pairs: [number, number][];
+  allowedMiners: string[];
   explorerApi: {
     [key: string]: {
       type: 'etherscan' | 'blockscout';

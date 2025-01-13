@@ -47,7 +47,6 @@ function setProvider(chainId: number) {
 }
 
 async function main() {
-  log.info(`${new Date().toISOString()}: Processing chain ${Config.chainId}. Role: ${Config.role}`);
   const txArg = process.argv.find((arg) => arg.startsWith('--tx='));
   if (txArg) {
     if (!chainId) {
@@ -60,7 +59,6 @@ async function main() {
   }
 
   if (Config.role === 'miner' || Config.role === 'finalizer') {
-    log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
     do {
       for (const [srcChainId, targetChainId] of cliConfig.pairs) {
         if (chainId && srcChainId !== chainId) {
@@ -69,6 +67,7 @@ async function main() {
         Config.chainId = srcChainId;
         setProvider(srcChainId);
         log.info(`${new Date().toISOString()}: Processing chain ${srcChainId} => ${targetChainId}`);
+        log.info(`with wallet ${await Config.wallet?.getAddress?.()}.`);
         const targetProvider = new ethers.JsonRpcProvider(proviers[targetChainId]);
         Config.targetWallet = new ethers.Wallet(Config.walletSk, targetProvider);
         if (Config.role === 'miner') {
